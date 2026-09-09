@@ -158,7 +158,7 @@ async function sendTextToNumber(jid, text) {
   return result;
 }
 
-const SEND_CONCURRENCY = Math.max(1, parseInt(process.env.SEND_CONCURRENCY || '4', 10) || 4);
+const SEND_CONCURRENCY = Math.max(1, parseInt(process.env.SEND_CONCURRENCY || '2', 10) || 2);
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
