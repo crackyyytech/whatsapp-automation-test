@@ -7,7 +7,7 @@ const express = require('express');
 const fileupload = require('express-fileupload');
 const pino = require('pino');
 const QRCode = require('qrcode');
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, proto } = require('@whiskeysockets/baileys');
 
 const PORT = process.env.PORT || 8080;
 const HOST = process.env.HOST || '0.0.0.0';
@@ -24,6 +24,7 @@ const state = {
 
 let sock = null;
 let startBusy = false;
+const pendingSends = new Map();
 
 function log(...args) { console.log(new Date().toISOString(), ...args); }
 
@@ -62,6 +63,23 @@ async function startClient() {
     }
 
     client.ev.on('creds.update', saveCreds);
+
+    client.ev.on('messages.update', (updates) => {
+      for (const u of updates) {
+        if (u.status !== undefined && u.key && u.key.remoteJid) {
+          try {
+            const name = (proto && proto.MessageStatus && proto.MessageStatus[u.status]) ? proto.MessageStatus[u.status] : u.status;
+            log('SEND-ACK', u.key.remoteJid.replace('@s.whatsapp.net', '') + ' id=' + u.key.id + ' status=' + name);
+            if (name === 'ERROR') {
+              const pending = pendingSends.get(u.key.id);
+              if (pending) pending.sent = false;
+            }
+          } catch (e) {
+            log('SEND-ACK parse error:', e.message);
+          }
+        }
+      }
+    });
 
     client.ev.on('connection.update', (update) => {
       const { connection, lastDisconnect, qr } = update;
@@ -129,16 +147,32 @@ function normalizeJid(raw) {
   return num + '@s.whatsapp.net';
 }
 
+async function waitForAck(id, timeoutMs) {
+  if (!id) return 'sent';
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const entry = pendingSends.get(id);
+    if (entry && entry.sent === false) return 'failed';
+    await sleep(150);
+  }
+  const entry = pendingSends.get(id);
+  if (entry && entry.sent === false) return 'failed';
+  return 'sent';
+}
+
 async function sendDocumentToNumber(jid, caption, buffer, fileName, mime) {
   const result = { number: jid.split('@')[0], status: 'unknown', error: null };
   try {
-    await sock.sendMessage(jid, {
+    const sent = await sock.sendMessage(jid, {
       document: buffer,
       fileName: fileName,
       mimetype: mime,
       caption: caption || undefined
     });
-    result.status = 'sent';
+    const id = sent && (sent.id || (sent.key && sent.key.id));
+    if (id) pendingSends.set(id, { sent: true });
+    result.status = await waitForAck(id, 2000);
+    if (result.status === 'failed') result.error = 'rejected by WhatsApp (error ack)';
   } catch (e) {
     result.status = 'failed';
     result.error = e.message || 'send failed';
@@ -149,8 +183,11 @@ async function sendDocumentToNumber(jid, caption, buffer, fileName, mime) {
 async function sendTextToNumber(jid, text) {
   const result = { number: jid.split('@')[0], status: 'unknown', error: null };
   try {
-    await sock.sendMessage(jid, { text: text });
-    result.status = 'sent';
+    const sent = await sock.sendMessage(jid, { text: text });
+    const id = sent && (sent.id || (sent.key && sent.key.id));
+    if (id) pendingSends.set(id, { sent: true });
+    result.status = await waitForAck(id, 2000);
+    if (result.status === 'failed') result.error = 'rejected by WhatsApp (error ack)';
   } catch (e) {
     result.status = 'failed';
     result.error = e.message || 'send failed';
