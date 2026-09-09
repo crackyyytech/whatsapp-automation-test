@@ -1,0 +1,19 @@
+{
+  "name": "whatsapp-document-sender-server",
+  "version": "1.0.0",
+  "description": "WhatsApp Document Sender API - Node.js + Baileys server for the VB.NET 3.5 client",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "6.7.24",
+    "express": "^4.22.2",
+    "express-fileupload": "^1.5.2",
+    "pino": "^9.14.0",
+    "qrcode": "^1.5.4"
+  }
+}
