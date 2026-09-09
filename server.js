@@ -254,12 +254,27 @@ function handleStop(req, res) {
   res.json({ success: true, message: 'Sending stopped.' });
 }
 
-// The VB.NET client appends /status, /send, /stop to the configured base URL,
+function handleLogout(req, res) {
+  res.json({ success: true, message: 'Logout requested. Session will be cleared.' });
+  state.qr = null;
+  state.connected = false;
+  try {
+    if (sock) {
+      sock.logout();
+      log('Manual logout requested.');
+    }
+  } catch (e) {
+    log('Logout error:', e.message);
+  }
+}
+
+// The VB.NET client appends /status, /send, /stop, /logout to the configured base URL,
 // so the routes are mounted both at the root and under /api/.
 function mount(prefix) {
   app.get(prefix + '/status', handleStatus);
   app.post(prefix + '/send', handleSend);
   app.post(prefix + '/stop', handleStop);
+  app.post(prefix + '/logout', handleLogout);
 }
 mount('');
 mount('/api');
@@ -274,6 +289,7 @@ app.get('/', (req, res) => {
     '<li><a href="/status">GET /status</a></li>' +
     '<li>POST /send (multipart: document, numbers, message)</li>' +
     '<li>POST /stop</li>' +
+    '<li>POST /logout</li>' +
     '</ul></body></html>'
   );
 });
