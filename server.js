@@ -1,6 +1,7 @@
 'use strict';
 
 const path = require('path');
+const os = require('os');
 const fs = require('fs');
 const express = require('express');
 const fileupload = require('express-fileupload');
@@ -10,7 +11,7 @@ const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLat
 
 const PORT = process.env.PORT || 8080;
 const HOST = process.env.HOST || '0.0.0.0';
-const SESSION_DIR = process.env.SESSION_DIR || path.join(__dirname, 'session');
+const SESSION_DIR = process.env.SESSION_DIR || path.join(process.env.HOME || os.homedir(), 'whatsapp-session');
 const FORCE_COUNTRY_CODE = (process.env.FORCE_COUNTRY_CODE || '').replace(/[^\d]/g, '');
 
 const state = {
@@ -93,7 +94,13 @@ async function startClient() {
 
         if (statusCode === DisconnectReason.loggedOut) {
           state.lastError = 'logged out';
-          log('Logged out from WhatsApp. Delete the session folder and restart to re-link.');
+          log('Logged out from WhatsApp. Clearing session and preparing a fresh QR code...');
+          try {
+            fs.rmSync(SESSION_DIR, { recursive: true, force: true });
+          } catch (e) {
+            log('Could not clear session folder:', e.message);
+          }
+          setTimeout(startClient, 2000);
           return;
         }
 
