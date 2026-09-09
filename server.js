@@ -240,6 +240,20 @@ function mount(prefix) {
 mount('');
 mount('/api');
 
+app.get('/', (req, res) => {
+  res.send(
+    '<!doctype html><html><head><meta charset="utf-8"><title>WhatsApp Document Sender - Server</title></head>' +
+    '<body style="font-family:sans-serif;max-width:600px;margin:40px auto;color:#333">' +
+    '<h1>WhatsApp Document Sender - Server</h1>' +
+    '<p>Status: <b>' + (state.connected ? 'CONNECTED' : 'NOT CONNECTED') + '</b> (link your phone by opening /status and scanning the QR with WhatsApp > Linked devices)</p>' +
+    '<p>Endpoints:</p><ul>' +
+    '<li><a href="/status">GET /status</a></li>' +
+    '<li>POST /send (multipart: document, numbers, message)</li>' +
+    '<li>POST /stop</li>' +
+    '</ul></body></html>'
+  );
+});
+
 app.get('/hello', (req, res) => {
   res.json({ ok: true, service: 'whatsapp-document-sender', connected: state.connected });
 });
