@@ -158,6 +158,51 @@ async function sendTextToNumber(jid, text) {
   return result;
 }
 
+const SEND_CONCURRENCY = Math.max(1, parseInt(process.env.SEND_CONCURRENCY || '4', 10) || 4);
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Runs the send loop with limited concurrency so batches complete much faster.
+// If delay > 0 it spaces out each send (0 = send as fast as WhatsApp allows).
+function sendToAll(numbers, message, file, delay) {
+  const results = [];
+  let index = 0;
+  let active = 0;
+
+  return new Promise((resolve) => {
+    function pump() {
+      while (!state.stopRequested && active < SEND_CONCURRENCY && index < numbers.length) {
+        const number = numbers[index++];
+        active++;
+        (async () => {
+          try {
+            if (delay > 0) await sleep(delay);
+            const jid = normalizeJid(number);
+            if (!jid) {
+              results.push({ number: number, status: 'failed', error: 'invalid number' });
+            } else if (file) {
+              results.push(await sendDocumentToNumber(jid, message, file.data, file.name, file.mimetype));
+            } else {
+              results.push(await sendTextToNumber(jid, message));
+            }
+          } catch (e) {
+            results.push({ number: number, status: 'failed', error: e.message || 'send failed' });
+          } finally {
+            active--;
+            pump();
+          }
+        })();
+      }
+      if (active === 0 && (index >= numbers.length || state.stopRequested)) {
+        resolve(results);
+      }
+    }
+    pump();
+  });
+}
+
 /* =========================================================
    Express app - routes match the VB.NET client contract
    Contract:
@@ -213,37 +258,26 @@ async function handleSend(req, res) {
 
     state.sending = true;
     state.stopRequested = false;
-    const results = [];
+
+    const rawDelay = String(req.body.delay || '').trim();
+    const delay = (isNaN(parseInt(rawDelay, 10)) || parseInt(rawDelay, 10) < 0) ? 0 : parseInt(rawDelay, 10);
 
     try {
-      for (const number of numbers) {
-        if (state.stopRequested) break;
-        const jid = normalizeJid(number);
-        if (!jid) {
-          results.push({ number: number, status: 'failed', error: 'invalid number' });
-          continue;
-        }
-        if (file) {
-          results.push(await sendDocumentToNumber(jid, message, file.data, file.name, file.mimetype));
-        } else {
-          results.push(await sendTextToNumber(jid, message));
-        }
+      const results = await sendToAll(numbers, message, file, delay);
+      const failed = results.filter(r => r.status !== 'sent').length;
+      const ok = results.length - failed;
+
+      if (failed === 0) {
+        return res.json({ success: true, message: 'All ' + results.length + ' message(s) sent.', results });
       }
+      if (ok === 0) {
+        return res.json({ success: false, message: 'No messages could be sent.', results });
+      }
+      return res.json({ success: true, message: ok + ' sent, ' + failed + ' failed.', results });
     } finally {
       state.sending = false;
       state.stopRequested = false;
     }
-
-    const failed = results.filter(r => r.status !== 'sent').length;
-    const ok = results.length - failed;
-
-    if (failed === 0) {
-      return res.json({ success: true, message: 'All ' + results.length + ' message(s) sent.', results });
-    }
-    if (ok === 0) {
-      return res.json({ success: false, message: '0 of ' + results.length + ' sent.', results });
-    }
-    return res.json({ success: true, message: ok + ' sent, ' + failed + ' failed.', results });
   } catch (e) {
     res.status(500).json({ success: false, message: 'Internal error: ' + e.message, results: [] });
   }
