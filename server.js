@@ -146,6 +146,18 @@ async function sendDocumentToNumber(jid, caption, buffer, fileName, mime) {
   return result;
 }
 
+async function sendTextToNumber(jid, text) {
+  const result = { number: jid.split('@')[0], status: 'unknown', error: null };
+  try {
+    await sock.sendMessage(jid, { text: text });
+    result.status = 'sent';
+  } catch (e) {
+    result.status = 'failed';
+    result.error = e.message || 'send failed';
+  }
+  return result;
+}
+
 /* =========================================================
    Express app - routes match the VB.NET client contract
    Contract:
@@ -178,9 +190,6 @@ async function handleSend(req, res) {
       state.stopRequested = false;
       return res.json({ success: false, message: 'Sending was stopped.', results: [] });
     }
-    if (!req.files || !req.files.document) {
-      return res.json({ success: false, message: 'Missing document file.', results: [] });
-    }
 
     let numbers = [];
     if (req.body.numbers) {
@@ -195,8 +204,12 @@ async function handleSend(req, res) {
       return res.json({ success: false, message: 'No valid numbers provided.', results: [] });
     }
 
-    const file = req.files.document;
-    const message = req.body.message || '';
+    const file = (req.files && req.files.document) ? req.files.document : null;
+    const message = (req.body.message || '').trim();
+
+    if (!file && !message) {
+      return res.json({ success: false, message: 'Provide a document file OR a text message.', results: [] });
+    }
 
     state.sending = true;
     state.stopRequested = false;
@@ -210,7 +223,11 @@ async function handleSend(req, res) {
           results.push({ number: number, status: 'failed', error: 'invalid number' });
           continue;
         }
-        results.push(await sendDocumentToNumber(jid, message, file.data, file.name, file.mimetype));
+        if (file) {
+          results.push(await sendDocumentToNumber(jid, message, file.data, file.name, file.mimetype));
+        } else {
+          results.push(await sendTextToNumber(jid, message));
+        }
       }
     } finally {
       state.sending = false;
@@ -221,7 +238,7 @@ async function handleSend(req, res) {
     const ok = results.length - failed;
 
     if (failed === 0) {
-      return res.json({ success: true, message: 'All ' + results.length + ' document(s) sent.', results });
+      return res.json({ success: true, message: 'All ' + results.length + ' message(s) sent.', results });
     }
     if (ok === 0) {
       return res.json({ success: false, message: '0 of ' + results.length + ' sent.', results });
