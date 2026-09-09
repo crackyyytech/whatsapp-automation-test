@@ -19,7 +19,8 @@ const state = {
   sending: false,
   qr: null,
   stopRequested: false,
-  lastError: null
+  lastError: null,
+  phone: null
 };
 
 let sock = null;
@@ -101,12 +102,25 @@ async function startClient() {
         state.connected = true;
         state.qr = null;
         state.lastError = null;
+        try {
+          const me = client.user && client.user.id;
+          if (me) {
+            const num = String(me).split(':')[0].replace(/[^\d]/g, '');
+            state.phone = num || null;
+            log('WhatsApp connected as +' + num);
+          } else {
+            state.phone = null;
+          }
+        } catch (e) {
+          state.phone = null;
+        }
         log('WhatsApp connected');
       }
 
       if (connection === 'close') {
         state.connected = false;
         state.qr = null;
+        state.phone = null;
         const statusCode = lastDisconnect && lastDisconnect.error && lastDisconnect.error.output
           ? lastDisconnect.error.output.statusCode : null;
 
@@ -253,7 +267,7 @@ app.use(fileupload({ limits: { fileSize: 50 * 1024 * 1024 }, abortOnLimit: true 
 app.use(express.json());
 
 function statusPayload() {
-  return { connected: state.connected, sending: state.sending, qr: state.qr, lastError: state.lastError };
+  return { connected: state.connected, sending: state.sending, qr: state.qr, lastError: state.lastError, phone: state.phone };
 }
 
 function handleStatus(req, res) {
